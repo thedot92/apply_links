@@ -1,27 +1,17 @@
 import os
 import logging
 import asyncio
-import os, base64
+import base64
 from datetime import datetime, timedelta
 
 import pytz
 import tzlocal
-# import gspread
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
-from telegram.ext import (
-    ApplicationBuilder,
-    Defaults,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-    ConversationHandler,
-)
 from dotenv import load_dotenv
-from telethon import TelegramClient
 
-# ─── Timezone setup ─────────────────────────────────────────────────────────────
+# ─── Load .env ─────────────────────────────────────────────────────────────────
+load_dotenv()  # now BOT_TOKEN, GSA_KEY_B64, etc. all come from .env
+
+# ─── Timezone setup ────────────────────────────────────────────────────────────
 os.environ["TZLOCAL_FORCE_PYTZ"] = "1"
 tzlocal.get_localzone = lambda: pytz.UTC
 ist = pytz.timezone("Asia/Kolkata")
@@ -53,41 +43,36 @@ for noisy in ("httpx", "telethon", "apscheduler"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# ─── Load Google Sheets credentials ────────────────────────────────────────────
-# 1. Read the base64-encoded JSON from the env var
+# ─── Load Google Sheets credentials from Base64 ─────────────────────────────────
 key_b64 = os.getenv("GSA_KEY_B64")
 if not key_b64:
     raise RuntimeError("Missing GSA_KEY_B64 variable!")
 
-# Decode the bytes
+# Decode and write out a local JSON file
 creds_bytes = base64.b64decode(key_b64)
-
-# Write to a writable temp path
 creds_path = "/tmp/credentials.json"
 with open(creds_path, "wb") as f:
     f.write(creds_bytes)
-    
-# Tell ALL Google libs (including gspread) where to look
+
+# Point Google libs at it
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
 
 # ─── Load config ────────────────────────────────────────────────────────────────
-load_dotenv()
-BOT_TOKEN         = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME  = os.getenv("CHANNEL_USERNAME")
-GROUP_USERNAME    = os.getenv("GROUP_USERNAME")
-OWNER_USERNAME    = os.getenv("OWNER_USERNAME")
-SHEET_ID          = os.getenv("SHEET_ID")
-GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON") or "credentials.json"
-API_ID            = int(os.getenv("API_ID"))
-API_HASH          = os.getenv("API_HASH")
-SESSION_NAME      = os.getenv("SESSION_NAME", "session")
+BOT_TOKEN        = os.getenv("BOT_TOKEN")
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
+GROUP_USERNAME   = os.getenv("GROUP_USERNAME")
+OWNER_USERNAME   = os.getenv("OWNER_USERNAME")
+SHEET_ID         = os.getenv("SHEET_ID")
+API_ID           = int(os.getenv("API_ID"))
+API_HASH         = os.getenv("API_HASH")
+SESSION_NAME     = os.getenv("SESSION_NAME", "session")
 
 # ─── Google Sheets auth ─────────────────────────────────────────────────────────
 import gspread
+
 try:
-    # gc = gspread.service_account(filename=GOOGLE_CREDS_JSON)
-    # sh = gc.open_by_key(SHEET_ID)
-    gc = gspread.service_account()  
+    # ← tell gspread exactly where the file is
+    gc = gspread.service_account(filename=creds_path)
     sh = gc.open_by_key(SHEET_ID)
 except Exception as e:
     logger.error(f"Could not open Google Sheet {SHEET_ID}: {e}")
@@ -99,7 +84,7 @@ try:
 except gspread.exceptions.WorksheetNotFound:
     sheet = sh.add_worksheet(title=worksheet_title, rows="1000", cols="5")
 
-# Ensure header row (named args to avoid deprecation warning)
+# Ensure header row
 try:
     sheet.update(
         values=[["Name", "Username", "Batch", "Date", "Time"]],
@@ -109,6 +94,19 @@ except Exception as e:
     logger.warning(f"Could not set header row: {e}")
 
 # ─── Telethon client ─────────────────────────────────────────────────────────────
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
+from telegram.ext import (
+    ApplicationBuilder,
+    Defaults,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+)
+from telethon import TelegramClient
+
 tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 tele_client.start(bot_token=BOT_TOKEN)
 
@@ -151,12 +149,10 @@ async def batch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_name = user.full_name
     username  = user.username or ""
 
-    # Acknowledge immediately
     await update.message.reply_text(
         "Thanks! Your batch is noted. I’m fetching the Apply Links now — you’ll get them shortly."
     )
 
-    # Spawn background task; this will send *all* matching posts
     asyncio.create_task(
         fetch_and_send_apply_links(
             context.bot, chat_id, full_name, username, batch
@@ -165,7 +161,6 @@ async def batch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
-    # Timestamp in IST with seconds & AM/PM
     now = datetime.now(ist)
     date_str = now.strftime("%d/%m/%Y")
     time_str = now.strftime("%I:%M:%S %p")
@@ -180,18 +175,17 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
     except Exception as e:
         logger.error(f"Failed to write data.txt: {e}")
 
-    # 2) Google Sheets append
+    # 2) Google Sheets
     try:
         await asyncio.to_thread(
             sheet.append_row,
             [full_name, username, batch, date_str, time_str],
             'RAW'
         )
-        # logger.info("Appended row to Google Sheet")
     except Exception as e:
         logger.error(f"Failed to append to Google Sheet: {e}")
 
-    # 3) Fetch & send *all* posts from last 7 days matching batch (skip <30 days)
+    # 3) Telethon fetch posts
     now_utc       = datetime.now(pytz.UTC)
     post_cutoff   = now_utc - timedelta(days=30)
     search_cutoff = now_utc - timedelta(days=7)
@@ -213,19 +207,15 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
         async for msg in tele_client.iter_messages(entity, offset_date=search_cutoff):
             if not msg.text or batch not in msg.text:
                 continue
-
             post_date = msg.date if msg.date.tzinfo else pytz.UTC.localize(msg.date)
             if post_date < post_cutoff:
                 continue
-
-            # Convert to IST and format with HH:MM:SS AM/PM
             post_date_ist = post_date.astimezone(ist)
             prefix = post_date_ist.strftime(
                 f"This message was posted on @{entity_username} at %d/%m/%Y at %I:%M:%S %p IST.\n\n"
             )
             await bot.send_message(chat_id, prefix + msg.text)
             found_any = True
-            # **no break** → continue to send *all* matching posts
 
     if not found_any:
         await bot.send_message(
@@ -236,13 +226,10 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
 
 # ─── Bot setup ────────────────────────────────────────────────────────────────
 def main():
-    # Defaults for APScheduler etc.
     defaults = Defaults(tzinfo=pytz.UTC)
-
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        # bump up HTTPX timeouts (default for send_message etc. is 5 s)
         .read_timeout(30)
         .write_timeout(30)
         .connect_timeout(10)
