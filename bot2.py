@@ -9,7 +9,7 @@ import tzlocal
 from dotenv import load_dotenv
 
 # ─── Load .env ─────────────────────────────────────────────────────────────────
-load_dotenv()  # now BOT_TOKEN, GSA_KEY_B64, etc. all come from .env
+load_dotenv()  # now all env vars (BOT_TOKEN, GSA_KEY_B64, etc.) are available
 
 # ─── Timezone setup ────────────────────────────────────────────────────────────
 os.environ["TZLOCAL_FORCE_PYTZ"] = "1"
@@ -48,7 +48,6 @@ key_b64 = os.getenv("GSA_KEY_B64")
 if not key_b64:
     raise RuntimeError("Missing GSA_KEY_B64 variable!")
 
-# Decode and write out a local JSON file
 creds_bytes = base64.b64decode(key_b64)
 creds_path = "/tmp/credentials.json"
 with open(creds_path, "wb") as f:
@@ -57,21 +56,21 @@ with open(creds_path, "wb") as f:
 # Point Google libs at it
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
 
-# ─── Load config ────────────────────────────────────────────────────────────────
-BOT_TOKEN        = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
-GROUP_USERNAME   = os.getenv("GROUP_USERNAME")
-OWNER_USERNAME   = os.getenv("OWNER_USERNAME")
-SHEET_ID         = os.getenv("SHEET_ID")
-API_ID           = int(os.getenv("API_ID"))
-API_HASH         = os.getenv("API_HASH")
-SESSION_NAME     = os.getenv("SESSION_NAME", "session")
+# ─── Load other config ──────────────────────────────────────────────────────────
+BOT_TOKEN               = os.getenv("BOT_TOKEN")
+CHANNEL_USERNAME        = os.getenv("CHANNEL_USERNAME")
+GROUP_USERNAME          = os.getenv("GROUP_USERNAME")
+OWNER_USERNAME          = os.getenv("OWNER_USERNAME")
+SHEET_ID                = os.getenv("SHEET_ID")
+API_ID                  = int(os.getenv("API_ID"))
+API_HASH                = os.getenv("API_HASH")
+SESSION_NAME            = os.getenv("SESSION_NAME", "session")
+# Telethon session string for non-interactive login
+SESSION_STRING          = os.getenv("TELETHON_SESSION_STRING")  # e.g. retrieved from StringSession
 
 # ─── Google Sheets auth ─────────────────────────────────────────────────────────
 import gspread
-
 try:
-    # ← tell gspread exactly where the file is
     gc = gspread.service_account(filename=creds_path)
     sh = gc.open_by_key(SHEET_ID)
 except Exception as e:
@@ -93,7 +92,18 @@ try:
 except Exception as e:
     logger.warning(f"Could not set header row: {e}")
 
-# ─── Telethon client ─────────────────────────────────────────────────────────────
+# ─── Telethon client (user session!) ────────────────────────────────────────────
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+
+if SESSION_STRING:
+    tele_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+else:
+    tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+# Start without bot_token to avoid BotMethodInvalidError
+tele_client.start()
+
+# ─── python-telegram-bot setup ─────────────────────────────────────────────────
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import (
     ApplicationBuilder,
@@ -105,15 +115,10 @@ from telegram.ext import (
     filters,
     ConversationHandler,
 )
-from telethon import TelegramClient
 
-tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-tele_client.start(bot_token=BOT_TOKEN)
-
-# ─── Conversation states ────────────────────────────────────────────────────────
+# Conversation state
 BATCH = 1
 
-# ─── Handlers ────────────────────────────────────────────────────────────────────
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
         [
@@ -185,7 +190,7 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
     except Exception as e:
         logger.error(f"Failed to append to Google Sheet: {e}")
 
-    # 3) Telethon fetch posts
+    # 3) Telethon fetch
     now_utc       = datetime.now(pytz.UTC)
     post_cutoff   = now_utc - timedelta(days=30)
     search_cutoff = now_utc - timedelta(days=7)
