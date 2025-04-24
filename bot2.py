@@ -102,7 +102,7 @@ else:
     tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 # Start without bot_token to avoid BotMethodInvalidError
 # tele_client.start()
-tele_client.start(bot_token=BOT_TOKEN)
+tele_client.start()
 
 # ─── python-telegram-bot setup ─────────────────────────────────────────────────
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
@@ -193,8 +193,9 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
 
     # 3) Telethon fetch
     now_utc       = datetime.now(pytz.UTC)
-    post_cutoff   = now_utc - timedelta(days=30)
-    search_cutoff = now_utc - timedelta(days=7)
+    min_date    = now_utc - timedelta(days=30)
+    # post_cutoff   = now_utc - timedelta(days=30)
+    # search_cutoff = now_utc - timedelta(days=7)
     found_any     = False
 
     try:
@@ -210,11 +211,13 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
             logger.warning(f"Could not load Telethon entity @{entity_username}: {e}")
             continue
 
-        async for msg in tele_client.iter_messages(entity, offset_date=search_cutoff):
-            if not msg.text or batch not in msg.text:
+        async for msg in tele_client.iter_messages(entity, limit=200):
+            if not msg.text:
                 continue
-            post_date = msg.date if msg.date.tzinfo else pytz.UTC.localize(msg.date)
-            if post_date < post_cutoff:
+            post_date = msg.date.astimezone(pytz.UTC)
+            if post_date < min_date:
+                continue
+            if batch.lower() not in msg.text.lower():
                 continue
             post_date_ist = post_date.astimezone(ist)
             prefix = post_date_ist.strftime(
