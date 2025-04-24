@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytz
 import tzlocal
-import gspread
+# import gspread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import (
     ApplicationBuilder,
@@ -59,9 +59,16 @@ key_b64 = os.getenv("GSA_KEY_B64")
 if not key_b64:
     raise RuntimeError("Missing GSA_KEY_B64 variable!")
 
-# 2. Decode it back into credentials.json
-with open("credentials.json", "wb") as f:
-    f.write(base64.b64decode(key_b64))
+# Decode the bytes
+creds_bytes = base64.b64decode(key_b64)
+
+# Write to a writable temp path
+creds_path = "/tmp/credentials.json"
+with open(creds_path, "wb") as f:
+    f.write(creds_bytes)
+    
+# Tell ALL Google libs (including gspread) where to look
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
 
 # ─── Load config ────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -76,8 +83,11 @@ API_HASH          = os.getenv("API_HASH")
 SESSION_NAME      = os.getenv("SESSION_NAME", "session")
 
 # ─── Google Sheets auth ─────────────────────────────────────────────────────────
+import gspread
 try:
-    gc = gspread.service_account(filename=GOOGLE_CREDS_JSON)
+    # gc = gspread.service_account(filename=GOOGLE_CREDS_JSON)
+    # sh = gc.open_by_key(SHEET_ID)
+    gc = gspread.service_account()  
     sh = gc.open_by_key(SHEET_ID)
 except Exception as e:
     logger.error(f"Could not open Google Sheet {SHEET_ID}: {e}")
