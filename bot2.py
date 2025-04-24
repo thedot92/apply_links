@@ -8,8 +8,8 @@ import pytz
 import tzlocal
 from dotenv import load_dotenv
 
-# ─── Load .env ─────────────────────────────────────────────────────────────────
-load_dotenv()  # now all env vars (BOT_TOKEN, GSA_KEY_B64, etc.) are available
+# ─── Load environment variables ─────────────────────────────────────────────────
+load_dotenv()
 
 # ─── Timezone setup ────────────────────────────────────────────────────────────
 os.environ["TZLOCAL_FORCE_PYTZ"] = "1"
@@ -46,27 +46,31 @@ logger = logging.getLogger(__name__)
 # ─── Load Google Sheets credentials from Base64 ─────────────────────────────────
 key_b64 = os.getenv("GSA_KEY_B64")
 if not key_b64:
-    raise RuntimeError("Missing GSA_KEY_B64 variable!")
+    raise RuntimeError("Missing GSA_KEY_B64 environment variable!")
 
 creds_bytes = base64.b64decode(key_b64)
 creds_path = "/tmp/credentials.json"
 with open(creds_path, "wb") as f:
     f.write(creds_bytes)
-
-# Point Google libs at it
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
 
 # ─── Load other config ──────────────────────────────────────────────────────────
-BOT_TOKEN               = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME        = os.getenv("CHANNEL_USERNAME")
-GROUP_USERNAME          = os.getenv("GROUP_USERNAME")
-OWNER_USERNAME          = os.getenv("OWNER_USERNAME")
-SHEET_ID                = os.getenv("SHEET_ID")
-API_ID                  = int(os.getenv("API_ID"))
-API_HASH                = os.getenv("API_HASH")
-SESSION_NAME            = os.getenv("SESSION_NAME", "session")
-# Telethon session string for non-interactive login
-SESSION_STRING          = os.getenv("TELETHON_SESSION_STRING")  # e.g. retrieved from StringSession
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
+GROUP_USERNAME = os.getenv("GROUP_USERNAME")
+OWNER_USERNAME = os.getenv("OWNER_USERNAME")
+SHEET_ID = os.getenv("SHEET_ID")
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+SESSION_NAME = os.getenv("SESSION_NAME", "session")
+SESSION_STRING = os.getenv("TELETHON_SESSION_STRING")
+
+# Validate essential configs
+if not BOT_TOKEN:
+    raise RuntimeError("Missing BOT_TOKEN environment variable!")
+if not API_ID or not API_HASH:
+    raise RuntimeError("Missing API_ID or API_HASH environment variable!")
+API_ID = int(API_ID)
 
 # ─── Google Sheets auth ─────────────────────────────────────────────────────────
 import gspread
@@ -92,19 +96,22 @@ try:
 except Exception as e:
     logger.warning(f"Could not set header row: {e}")
 
-# ─── Telethon client (user session!) ────────────────────────────────────────────
+# ─── Telethon client setup ───────────────────────────────────────────────────────
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 if SESSION_STRING:
+    # Use existing session string for non-interactive login
     tele_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
-else:
+    tele_client.start()
+elif BOT_TOKEN:
+    # Log in as bot to avoid interactive prompt
     tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-# Start without bot_token to avoid BotMethodInvalidError
-# tele_client.start()
-tele_client.start()
+    tele_client.start(bot_token=BOT_TOKEN)
+else:
+    raise RuntimeError("Provide TELETHON_SESSION_STRING or BOT_TOKEN for Telethon login.")
 
-# ─── python-telegram-bot setup ─────────────────────────────────────────────────
+# ─── python-telegram-bot setup ───────────────────────────────────────────────────
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import (
     ApplicationBuilder,
@@ -192,11 +199,9 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
         logger.error(f"Failed to append to Google Sheet: {e}")
 
     # 3) Telethon fetch
-    now_utc       = datetime.now(pytz.UTC)
-    min_date    = now_utc - timedelta(days=30)
-    # post_cutoff   = now_utc - timedelta(days=30)
-    # search_cutoff = now_utc - timedelta(days=7)
-    found_any     = False
+    now_utc    = datetime.now(pytz.UTC)
+    min_date   = now_utc - timedelta(days=30)
+    found_any  = False
 
     try:
         with open("groups.txt", encoding="utf-8") as gf:
