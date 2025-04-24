@@ -1,0 +1,7 @@
+python-telegram-bot
+telethon
+gspread
+python-dotenv
+pytz
+tzlocal
+apscheduler
