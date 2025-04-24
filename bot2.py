@@ -101,7 +101,8 @@ if SESSION_STRING:
 else:
     tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 # Start without bot_token to avoid BotMethodInvalidError
-tele_client.start()
+# tele_client.start()
+tele_client.start(bot_token=BOT_TOKEN)
 
 # ─── python-telegram-bot setup ─────────────────────────────────────────────────
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
