@@ -196,7 +196,7 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
 
     # 3) Telethon fetch
     now_utc = datetime.now(pytz.UTC)
-    min_date = now_utc - timedelta(days=30)
+    min_date = now_utc - timedelta(days=14)
     found_any = False
 
     try:
