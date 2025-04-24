@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import os, base64
 from datetime import datetime, timedelta
 
 import pytz
@@ -51,6 +52,16 @@ logging.basicConfig(
 for noisy in ("httpx", "telethon", "apscheduler"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# ─── Load Google Sheets credentials ────────────────────────────────────────────
+# 1. Read the base64-encoded JSON from the env var
+key_b64 = os.getenv("GSA_KEY_B64")
+if not key_b64:
+    raise RuntimeError("Missing GSA_KEY_B64 variable!")
+
+# 2. Decode it back into credentials.json
+with open("credentials.json", "wb") as f:
+    f.write(base64.b64decode(key_b64))
 
 # ─── Load config ────────────────────────────────────────────────────────────────
 load_dotenv()
