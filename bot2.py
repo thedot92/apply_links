@@ -70,6 +70,10 @@ if not BOT_TOKEN:
     raise RuntimeError("Missing BOT_TOKEN environment variable!")
 if not API_ID or not API_HASH:
     raise RuntimeError("Missing API_ID or API_HASH environment variable!")
+if not SESSION_STRING:
+    raise RuntimeError(
+        "Missing TELETHON_SESSION_STRING. Generate a StringSession for your user account using Telethon locally and set this env var to fetch channel history."
+    )
 API_ID = int(API_ID)
 
 # ─── Google Sheets auth ─────────────────────────────────────────────────────────
@@ -96,20 +100,12 @@ try:
 except Exception as e:
     logger.warning(f"Could not set header row: {e}")
 
-# ─── Telethon client setup ───────────────────────────────────────────────────────
+# ─── Telethon client setup (user session required) ───────────────────────────────
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-if SESSION_STRING:
-    # Use existing session string for non-interactive login
-    tele_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
-    tele_client.start()
-elif BOT_TOKEN:
-    # Log in as bot to avoid interactive prompt
-    tele_client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-    tele_client.start(bot_token=BOT_TOKEN)
-else:
-    raise RuntimeError("Provide TELETHON_SESSION_STRING or BOT_TOKEN for Telethon login.")
+tele_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+tele_client.start()
 
 # ─── python-telegram-bot setup ───────────────────────────────────────────────────
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
@@ -141,11 +137,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query   = update.callback_query
+    query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     chan_member = await context.bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
-    grp_member  = await context.bot.get_chat_member(f"@{GROUP_USERNAME}", user_id)
+    grp_member = await context.bot.get_chat_member(f"@{GROUP_USERNAME}", user_id)
     allowed = {ChatMember.MEMBER, ChatMember.OWNER, ChatMember.ADMINISTRATOR}
 
     if chan_member.status in allowed and grp_member.status in allowed:
@@ -156,11 +152,11 @@ async def check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
 async def batch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    batch     = update.message.text.strip()
-    user      = update.effective_user
-    chat_id   = update.effective_chat.id
+    batch = update.message.text.strip()
+    user = update.effective_user
+    chat_id = update.effective_chat.id
     full_name = user.full_name
-    username  = user.username or ""
+    username = user.username or ""
 
     await update.message.reply_text(
         "Thanks! Your batch is noted. I’m fetching the Apply Links now — you’ll get them shortly."
@@ -199,9 +195,9 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
         logger.error(f"Failed to append to Google Sheet: {e}")
 
     # 3) Telethon fetch
-    now_utc    = datetime.now(pytz.UTC)
-    min_date   = now_utc - timedelta(days=30)
-    found_any  = False
+    now_utc = datetime.now(pytz.UTC)
+    min_date = now_utc - timedelta(days=30)
+    found_any = False
 
     try:
         with open("groups.txt", encoding="utf-8") as gf:
@@ -257,7 +253,7 @@ def main():
             CommandHandler("start", start_handler),
             CallbackQueryHandler(check_handler, pattern="^check$"),
         ],
-        states={ BATCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, batch_handler)] },
+        states={BATCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, batch_handler)]},
         fallbacks=[],
         allow_reentry=True,
     )
