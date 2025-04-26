@@ -145,7 +145,7 @@ async def check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     allowed = {ChatMember.MEMBER, ChatMember.OWNER, ChatMember.ADMINISTRATOR}
 
     if chan_member.status in allowed and grp_member.status in allowed:
-        await query.message.reply_text("✅ Thanks! \n\nNow please enter your Batch Year/Graduation Year:\n(Example: 2027)")
+        await query.message.reply_text("✅ Thanks! \n\nNow please enter your Batch Year/Graduation Year:\n(Example: 2027) \n\nYou may also search for a keywords.\nLike Intern, Fresher, Google etc.")
         return BATCH
     else:
         await query.message.reply_text("❌ You must join both the channel and group to proceed.")
