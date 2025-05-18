@@ -4,17 +4,19 @@ import asyncio
 import base64
 from datetime import datetime, timedelta
 
-import pytz
-import tzlocal
+# import pytz
+# import tzlocal
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 # ─── Load environment variables ─────────────────────────────────────────────────
 load_dotenv()
 
 # ─── Timezone setup ────────────────────────────────────────────────────────────
-os.environ["TZLOCAL_FORCE_PYTZ"] = "1"
-tzlocal.get_localzone = lambda: pytz.UTC
-ist = pytz.timezone("Asia/Kolkata")
+# os.environ["TZLOCAL_FORCE_PYTZ"] = "1"
+# tzlocal.get_localzone = lambda: pytz.UTC
+# ist = pytz.timezone("Asia/Kolkata")
+ist = ZoneInfo("Asia/Kolkata")
 
 # ─── Monkey-patch APScheduler’s astimezone ───────────────────────────────────────
 import apscheduler.util as aps_util
@@ -236,7 +238,8 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
 
 # ─── Bot setup ────────────────────────────────────────────────────────────────
 def main():
-    defaults = Defaults(tzinfo=pytz.UTC)
+    # defaults = Defaults(tzinfo=pytz.UTC)
+    defaults = Defaults(tzinfo=ZoneInfo("UTC"))
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
