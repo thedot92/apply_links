@@ -3,9 +3,6 @@ import logging
 import asyncio
 import base64
 from datetime import datetime, timedelta
-
-# import pytz
-# import tzlocal
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
@@ -13,29 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── Timezone setup ────────────────────────────────────────────────────────────
-# os.environ["TZLOCAL_FORCE_PYTZ"] = "1"
-# tzlocal.get_localzone = lambda: pytz.UTC
-# ist = pytz.timezone("Asia/Kolkata")
 ist = ZoneInfo("Asia/Kolkata")
-
-# ─── Monkey-patch APScheduler’s astimezone ───────────────────────────────────────
-import apscheduler.util as aps_util
-import apscheduler.schedulers.base as aps_base
-
-def patched_astimezone(tz):
-    if tz is None:
-        return pytz.UTC
-    if hasattr(tz, "zone"):
-        return tz
-    if hasattr(tz, "key"):
-        try:
-            return pytz.timezone(tz.key)
-        except Exception:
-            return pytz.UTC
-    return pytz.UTC
-
-aps_util.astimezone = patched_astimezone
-aps_base.astimezone = patched_astimezone
 
 # ─── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -197,7 +172,7 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
         logger.error(f"Failed to append to Google Sheet: {e}")
 
     # 3) Telethon fetch
-    now_utc = datetime.now(pytz.UTC)
+    now_utc = datetime.now(ZoneInfo("UTC"))
     min_date = now_utc - timedelta(days=2)
     found_any = False
 
@@ -217,7 +192,7 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
         async for msg in tele_client.iter_messages(entity, limit=200):
             if not msg.text:
                 continue
-            post_date = msg.date.astimezone(pytz.UTC)
+            post_date = msg.date.astimezone(ZoneInfo("UTC"))
             if post_date < min_date:
                 continue
             if batch.lower() not in msg.text.lower():
@@ -232,13 +207,12 @@ async def fetch_and_send_apply_links(bot, chat_id, full_name, username, batch):
     if not found_any:
         await bot.send_message(
             chat_id,
-            f"No recent posts (within 1 month) found for batch {batch}. "
+            f"No recent posts (within 2 days) found for batch {batch}. "
             f"If you have questions, please DM the owner: @{OWNER_USERNAME}"
         )
 
 # ─── Bot setup ────────────────────────────────────────────────────────────────
 def main():
-    # defaults = Defaults(tzinfo=pytz.UTC)
     defaults = Defaults(tzinfo=ZoneInfo("UTC"))
     app = (
         ApplicationBuilder()
